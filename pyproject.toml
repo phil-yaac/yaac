@@ -2,9 +2,14 @@
 name = "yaac"
 version = "0.1.0"
 description = "Add your description here"
+authors = [{name = "Phil Ammirato", email = "phil.ammirato.yaac@gmail.com"}]
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.2.5",
     "torch>=2.7.0",
 ]
+
+[tool.setuptools]
+packages = ["yaac"]
