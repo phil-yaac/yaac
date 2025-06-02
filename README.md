@@ -80,6 +80,22 @@ ruff format --check yaac/
 ruff format --diff yaac/
 ```
 
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run tests with verbose output
+pytest -v
+
+# Run tests for a specific module
+pytest tests/models/yad/
+
+# Run a specific test
+pytest tests/models/yad/test_yad.py::test_make_yad
+```
+
 You can also integrate these tools with your editor:
 - For VS Code: Install the "Python" and "Ruff" extensions
 - For PyCharm: Install the "Mypy" and "Ruff" plugins

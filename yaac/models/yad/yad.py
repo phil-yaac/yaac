@@ -57,16 +57,14 @@ class YAD(torch.nn.Module):
 
     def loss(
         self,
-        bbox_out: torch.Tensor,
-        cls_out: torch.Tensor,
-        objectness_out: torch.Tensor,
+        outputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+        gt_bboxes: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Loss function
 
         Args:
-            bbox_out: Bbox output
-            cls_out: Classification output
-            objectness_out: Objectness output
+            outputs: Outputs from forward pass
+            gt_bboxes: Ground truth bboxes. Sh
         Returns:
             Keys are loss names, values are loss values (scalar tensors)
         """
@@ -91,6 +89,34 @@ class YAD(torch.nn.Module):
             - 6 is the bounding box format: (min_row, min_col, max_row, max_col, score, class_id).
         """
         pass
+
+def _make_anchor_points(
+    feature_map_height: int,
+    feature_map_width: int,
+) -> torch.Tensor:
+    """Make anchor points, a grid of points on the feature map.
+
+    Each pixel in the feature map is an anchor point. The points are placed in a grid
+    and normalized to [0,1] coordinates.
+
+    Args:
+        feature_map_height: Height of the feature map.
+        feature_map_width: Width of the feature map.
+
+    Returns:
+        Anchor points in normalized coordinates [0,1]. Shape (num_points, 2).
+        num_points = feature_map_height * feature_map_width
+    """
+    # Create a grid of points on the feature map, normalized to [0,1]
+    grid_y, grid_x = torch.meshgrid(
+        torch.linspace(0, 1, feature_map_height),
+        torch.linspace(0, 1, feature_map_width),
+        indexing='ij'  # Use 'ij' indexing to match the test's expected order
+    )
+
+    # Flatten the grid and stack into points
+    anchor_points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=-1)
+    return anchor_points
 
 
 
@@ -210,7 +236,14 @@ def make_yad(num_classes: int = 80) -> YAD:
     )
 
 
+
+
+
 if __name__ == "__main__":
-    make_yad()
+    model = make_yad()
+    image = torch.randn(1, 3, 224, 224)
+    outputs = model(image)
+    breakpoint()
+    abc = 1
     
     
