@@ -28,12 +28,17 @@ This document describes how to publish the `yaac` package to PyPI.
 
 ## Building the Package
 
-1. **Clean previous builds** (if any):
+1. **Activate the project virtual environment**:
+   ```bash
+   source .venv/bin/activate
+   ```
+
+2. **Clean previous builds** (if any):
    ```bash
    rm -rf build/ dist/ *.egg-info/
    ```
 
-2. **Build the package**:
+3. **Build the package**:
    ```bash
    # Recommended: Using uv (handles environment automatically)
    uv build
@@ -90,7 +95,12 @@ This document describes how to publish the `yaac` package to PyPI.
 
 ## Publishing to Production PyPI
 
-1. **Upload to PyPI**:
+1. **Activate the project virtual environment** (if not already activated):
+   ```bash
+   source .venv/bin/activate
+   ```
+
+2. **Upload to PyPI**:
    ```bash
    # Using helper script (recommended)
    ./publish/upload_to_pypi.sh

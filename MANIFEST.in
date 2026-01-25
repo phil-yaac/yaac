@@ -4,3 +4,4 @@ include pyproject.toml
 recursive-exclude tests *
 recursive-exclude *.egg-info *
 recursive-exclude __pycache__ *
+recursive-exclude test_yaac_* *
