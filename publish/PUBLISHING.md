@@ -5,9 +5,13 @@ This document describes how to publish the `yaac` package to PyPI.
 ## Prerequisites
 
 1. **PyPI Account**: Create an account at https://pypi.org/account/register/
-2. **TestPyPI Account** (recommended for testing): Create an account at https://test.pypi.org/account/register/
-3. **Build Tools**: Install build tools:
+2. **TestPyPI Account** (optional, for testing): Create an account at https://test.pypi.org/account/register/
+3. **Build Tools**: Install `uv` (recommended) or `build` and `twine`:
    ```bash
+   # Using uv (recommended)
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   
+   # Or using pip
    pip install build twine
    ```
 
@@ -31,12 +35,14 @@ This document describes how to publish the `yaac` package to PyPI.
 
 2. **Build the package**:
    ```bash
+   # Recommended: Using uv (handles environment automatically)
+   uv build
+   
+   # Alternative: Using python -m build
    python -m build
    ```
 
-   This creates:
-   - `dist/yaac-0.1.0.tar.gz` (source distribution)
-   - `dist/yaac-0.1.0-py3-none-any.whl` (wheel distribution)
+   This creates source distribution (`.tar.gz`) and wheel (`.whl`) files in `dist/`.
 
 3. **Verify the build**:
    ```bash
@@ -44,59 +50,69 @@ This document describes how to publish the `yaac` package to PyPI.
    ls -lh dist/
    
    # Verify the package contents
-   tar -tzf dist/yaac-0.1.0.tar.gz | head -20
+   tar -tzf dist/yaac-*.tar.gz | head -20
    ```
 
-## Testing on TestPyPI (Recommended)
+## Testing on TestPyPI (Optional)
 
-Before publishing to production PyPI, test on TestPyPI:
+**Note**: TestPyPI doesn't allow deleting or overwriting existing versions. If you need to re-test the same version, use a post/dev suffix (e.g., `0.1.4.post1`) or skip TestPyPI and test directly on production PyPI (packages can be deleted within 30 days).
 
 1. **Upload to TestPyPI**:
    ```bash
-   # Option 1: Use the helper script (recommended)
+   # Using helper script (recommended)
    ./publish/upload_to_testpypi.sh
    
-   # Option 2: Manual upload
+   # Or manual upload
    python -m twine upload --repository testpypi dist/*
    ```
 
-   You'll be prompted for:
-   - Username: `__token__`
-   - Password: Your TestPyPI API token (create at https://test.pypi.org/manage/account/token/)
-
 2. **Test installation from TestPyPI**:
    ```bash
-   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ yaac
+   # Create temporary test environment
+   uv venv test_yaac_env
+   source test_yaac_env/bin/activate
+   
+   # Install from TestPyPI
+   uv pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ yaac
    ```
-
-   Note: The `--extra-index-url` is needed because TestPyPI doesn't mirror all dependencies.
 
 3. **Verify the installation**:
    ```bash
    python -c "import yaac; print(yaac.__version__)"
-   python -c "from yaac import TrainableModel, load_model_from_checkpoint; print('Imports work!')"
+   python -c "from yaac.common.model_loader import load_model_from_checkpoint; print('Imports work!')"
+   ```
+   
+   When done testing, deactivate and remove the test environment:
+   ```bash
+   deactivate
+   rm -rf test_yaac_env
    ```
 
 ## Publishing to Production PyPI
 
-Once you've tested on TestPyPI:
-
 1. **Upload to PyPI**:
    ```bash
-   # Option 1: Use the helper script (recommended)
+   # Using helper script (recommended)
    ./publish/upload_to_pypi.sh
    
-   # Option 2: Manual upload
+   # Or manual upload
    python -m twine upload dist/*
    ```
 
-   You'll be prompted for:
-   - Username: `__token__`
-   - Password: Your PyPI API token (create at https://pypi.org/manage/account/token/)
-
 2. **Verify the publication**:
-   - Check https://pypi.org/project/yaac/
-   - Test installation: `pip install yaac`
+   ```bash
+   # Check package page
+   # https://pypi.org/project/yaac/
+   
+   # Test installation in fresh environment
+   uv venv test_yaac_prod
+   source test_yaac_prod/bin/activate
+   uv pip install yaac
+   python -c "import yaac; print(yaac.__version__)"
+   python -c "from yaac.common.model_loader import load_model_from_checkpoint; print('Imports work!')"
+   deactivate
+   rm -rf test_yaac_prod
+   ```
 
 ## Updating the Package
 
@@ -116,62 +132,37 @@ When you need to publish a new version:
 
 ## API Token Setup
 
-For security, use API tokens instead of passwords:
-
-1. Go to https://pypi.org/manage/account/token/ (or TestPyPI equivalent)
-2. Create a new API token with scope "Entire account" or "Project: yaac"
-3. Copy the token (starts with `pypi-`)
-
-### Using Helper Scripts (Recommended)
-
-The easiest way to upload is using the helper scripts in `publish/`:
-
-1. **Create `.env` file** in the project root:
+1. Create API tokens at:
+   - TestPyPI: https://test.pypi.org/manage/account/token/
+   - Production: https://pypi.org/manage/account/token/
+2. Create `.env` file in project root:
    ```bash
-   # Copy from .env.example if it exists, or create:
    TESTPYPI_TOKEN=pypi-your-testpypi-token-here
    PYPI_TOKEN=pypi-your-pypi-token-here
    ```
-
-2. **Upload using scripts**:
-   ```bash
-   # Test on TestPyPI
-   ./publish/upload_to_testpypi.sh
-   
-   # Upload to production
-   ./publish/upload_to_pypi.sh
-   ```
-
-The scripts automatically load tokens from `.env` and use `__token__` as the username.
-
-### Manual Upload
-
-If you prefer manual upload, use `__token__` as username and the token as password when prompted.
+3. Helper scripts (`./publish/upload_to_*.sh`) automatically use tokens from `.env`
 
 ## Troubleshooting
 
-### "Package already exists" error
-- The version number must be incremented for each upload
-- PyPI doesn't allow overwriting existing versions
+### "ensurepip is not available" error
 
-### "Invalid distribution" error
-- Make sure you're uploading both `.tar.gz` and `.whl` files
-- Verify the build completed successfully
+If `python -m build` fails with this error:
+- **Quick fix**: Use `uv build` instead (recommended)
+- **Alternative**: Install `python3-venv` for your Python version (e.g., `sudo apt install python3.12-venv`)
 
-### Import errors after installation
-- Check that `__init__.py` files properly export the public API
-- Verify package structure matches what's in `pyproject.toml`
+### "400 Bad Request" error
+
+Common causes:
+- **Version already exists**: Use post/dev suffix (e.g., `0.1.4.post1`) or skip TestPyPI
+- **Missing files**: Ensure both `.tar.gz` and `.whl` are in `dist/`
+- **Invalid metadata**: Validate with `twine check dist/*`
+- **Token permissions**: Ensure token has "Upload packages" scope
+
+Get detailed error: `python -m twine upload --repository testpypi dist/* --verbose`
 
 ## Package Structure
 
-The package exports:
-
-- **Top-level**: `TrainableModel`, `load_model_from_checkpoint`
-- **Models**: `yaac.models.sic.SIC`, `yaac.models.sic.make_model`
-- **Common**: `yaac.common.trainable_model.TrainableModel`, `yaac.common.model_loader.load_model_from_checkpoint`
-
-Users can import like:
-```python
-from yaac import TrainableModel, load_model_from_checkpoint
-from yaac.models.sic import SIC, make_model
-```
+Main exports:
+- `yaac.common.model_loader.load_model_from_checkpoint`
+- `yaac.common.trainable_model.TrainableModel`
+- `yaac.models.sic.SIC`, `yaac.models.sic.make_model`
