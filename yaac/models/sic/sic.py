@@ -5,6 +5,10 @@ from transformers import AutoModel
 from yaac.common.trainable_model import TrainableModel
 from yaac.models.sic.classification_heads import SingleFCClassificationHead
 from functools import partial
+from PIL import Image
+import numpy as np
+from torchvision import transforms
+from typing import Union
 
 
 class SIC(TrainableModel):
@@ -20,6 +24,9 @@ class SIC(TrainableModel):
         predictions_head: torch.nn.Module,
         loss_function: torch.nn.Module,
         postprocess_function: callable,
+        input_size: tuple[int, int] = (224, 224),
+        mean: tuple[float, float, float] | None = None,
+        std: tuple[float, float, float] | None = None,
     ):
         """Initialize SIC with composed components.
         
@@ -28,13 +35,132 @@ class SIC(TrainableModel):
             predictions_head: Final classification head
             loss_function: Loss function for training
             postprocess_function: Function to postprocess raw outputs
+            input_size: Expected input image size (height, width). Defaults to (224, 224).
+            mean: Normalization mean values for RGB channels. Defaults to ImageNet values.
+            std: Normalization std values for RGB channels. Defaults to ImageNet values.
         """
         super().__init__()
         self._backbone = backbone
         self._predictions_head = predictions_head
         self._loss_function = loss_function
         self._postprocess_function = postprocess_function
+        self._input_size = input_size
+        # ImageNet normalization stats (default)
+        if mean is None:
+            mean = (0.485, 0.456, 0.406)
+        if std is None:
+            std = (0.229, 0.224, 0.225)
+        self._mean = torch.tensor(mean)
+        self._std = torch.tensor(std)
 
+    def preprocess(self, inputs: Union[Image.Image, torch.Tensor, np.ndarray]) -> torch.Tensor:
+        """Preprocess input data for model inference.
+        
+        Handles PIL Image, torch.Tensor, or numpy.ndarray inputs. Applies only
+        necessary transforms: resize if needed, convert to tensor if needed,
+        normalize if input is in [0,255] or [0,1] range.
+        
+        Args:
+            inputs: Input data in PIL Image, torch.Tensor, or numpy.ndarray format
+            
+        Returns:
+            Preprocessed tensor in format (B, C, H, W) ready for model forward pass
+        """
+        target_h, target_w = self._input_size
+        target_h = int(target_h)
+        target_w = int(target_w)
+        
+        # Convert to tensor if needed
+        if isinstance(inputs, Image.Image):
+            # PIL Image: convert to RGB if needed
+            if inputs.mode != "RGB":
+                inputs = inputs.convert("RGB")
+            
+            # Resize if needed before converting to tensor
+            if inputs.size != (target_w, target_h):
+                inputs = inputs.resize((target_w, target_h), Image.LANCZOS)
+            
+            tensor = transforms.ToTensor()(inputs)
+        elif isinstance(inputs, np.ndarray):
+            # Numpy array: handle different shapes
+            if inputs.dtype != np.float32 and inputs.dtype != np.float64:
+                inputs = inputs.astype(np.float32)
+            
+            # Handle different array shapes
+            if len(inputs.shape) == 2:
+                # Grayscale (H, W) -> (1, H, W)
+                tensor = torch.from_numpy(inputs).unsqueeze(0)
+            elif len(inputs.shape) == 3:
+                if inputs.shape[2] == 3:
+                    # (H, W, C) -> (C, H, W)
+                    tensor = torch.from_numpy(inputs).permute(2, 0, 1)
+                else:
+                    # (C, H, W)
+                    tensor = torch.from_numpy(inputs)
+            elif len(inputs.shape) == 4:
+                # (B, C, H, W) or (B, H, W, C)
+                if inputs.shape[3] == 3:
+                    tensor = torch.from_numpy(inputs).permute(0, 3, 1, 2)
+                else:
+                    tensor = torch.from_numpy(inputs)
+            else:
+                raise ValueError(f"Unsupported numpy array shape: {inputs.shape}")
+        elif isinstance(inputs, torch.Tensor):
+            tensor = inputs
+        else:
+            raise TypeError(f"Unsupported input type: {type(inputs)}")
+        
+        # Ensure tensor is float
+        if tensor.dtype != torch.float32:
+            tensor = tensor.float()
+        
+        # Handle batch dimension
+        has_batch = len(tensor.shape) == 4
+        if not has_batch:
+            tensor = tensor.unsqueeze(0)
+        
+        # Get current dimensions (convert to Python ints)
+        _, num_channels, current_h, current_w = tensor.shape
+        current_h = int(current_h)
+        current_w = int(current_w)
+        
+        # Ensure we have 3 channels (RGB)
+        if num_channels == 1:
+            # Grayscale -> RGB by repeating channels
+            tensor = tensor.repeat(1, 3, 1, 1)
+        elif num_channels != 3:
+            raise ValueError(f"Expected 1 or 3 channels, got {num_channels}")
+        
+        # Resize if needed (for tensors/numpy arrays that weren't PIL)
+        if current_h != target_h or current_w != target_w:
+            tensor = transforms.functional.resize(
+                tensor, size=(target_h, target_w), antialias=True
+            )
+        
+        # Check value range and normalize if needed
+        min_val = tensor.min().item()
+        max_val = tensor.max().item()
+        
+        # Determine if we should normalize
+        should_normalize = False
+        
+        if max_val > 1.0 and min_val >= 0.0:
+            # Values are in [0, 255] range
+            tensor = tensor / 255.0
+            should_normalize = True
+        elif max_val <= 1.0 and min_val >= 0.0:
+            # Values are in [0, 1] range
+            should_normalize = True
+        # Otherwise, values are already normalized or outside expected range, skip normalization
+        
+        # Apply ImageNet normalization if needed
+        if should_normalize:
+            mean = self._mean.view(1, 3, 1, 1).to(tensor.device)
+            std = self._std.view(1, 3, 1, 1).to(tensor.device)
+            tensor = (tensor - mean) / std
+        
+        return tensor
+    
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
         
@@ -80,6 +206,9 @@ def make_model(
     head_type: str = "basic_001",
     loss_type: str = "auto",
     postprocess_type: str = "auto",
+    input_size: tuple[int, int] = (224, 224),
+    mean: tuple[float, float, float] | None = None,
+    std: tuple[float, float, float] | None = None,
 ) -> SIC:
     """Factory function to create a SIC model with configurable components.
     
@@ -95,6 +224,9 @@ def make_model(
         head_type: Type of predictions head to use ("basic_001" or "basic_convnext_tiny")
         loss_type: Type of loss function to use ("auto", "bce", "ce")
         postprocess_type: Type of postprocess function to use ("auto", "sigmoid", "softmax")
+        input_size: Expected input image size (height, width). Defaults to (224, 224).
+        mean: Normalization mean values for RGB channels. Defaults to ImageNet values.
+        std: Normalization std values for RGB channels. Defaults to ImageNet values.
         
     Returns:
         Configured SIC model instance
@@ -109,6 +241,9 @@ def make_model(
         predictions_head=predictions_head,
         loss_function=loss_function,
         postprocess_function=postprocess_function,
+        input_size=input_size,
+        mean=mean,
+        std=std,
     )
 
 
